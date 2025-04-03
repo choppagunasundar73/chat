@@ -1,0 +1,10 @@
+streamlit
+torch
+# Specify the correct unsloth variant (CPU or CUDA)
+# If deploying to a CPU environment (like Streamlit free tier):
+unsloth[cpu]
+# If deploying to an environment with NVIDIA GPU and CUDA:
+# unsloth[cu121] @ git+https://github.com/unslothai/unsloth.git # Or cu118, check unsloth docs
+transformers
+accelerate
+bitsandbytes # Needed for 4-bit loading, might require specific versions depending on CUDA 
