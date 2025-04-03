@@ -1,6 +1,6 @@
 import streamlit as st
 import torch
-from unsloth import FastLanguageModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import time
 import os
 import sys
@@ -89,27 +89,63 @@ with st.sidebar:
         if st.button("Load Model"):
             with st.spinner("Loading model... This might take a minute."):
                 try:
-                    # Determine dtype based on CUDA availability
-                    dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-                    load_in_4bit = use_4bit if torch.cuda.is_available() else False
-                    
-                    # Load model and tokenizer
-                    model, tokenizer = FastLanguageModel.from_pretrained(
-                        model_name=model_name,
-                        max_seq_length=max_seq_length,
-                        dtype=dtype,
-                        load_in_4bit=load_in_4bit,
-                    )
-                    
-                    # Enable faster inference
-                    FastLanguageModel.for_inference(model)
-                    
-                    # Store in session state
-                    st.session_state.model = model
-                    st.session_state.tokenizer = tokenizer
-                    st.session_state.is_model_loaded = True
-                    
-                    st.success("Model loaded successfully!")
+                    # Remove: from unsloth import FastLanguageModel
+                    from transformers import AutoModelForCausalLM, AutoTokenizer
+                    import torch
+                    # ... other imports
+
+                    # ... inside the Load Model button logic ...
+                    st.session_state.model = None # Clear previous model if any
+                    st.session_state.tokenizer = None # Clear previous tokenizer if any
+                    gc.collect() # Try to free memory
+
+                    # Load model and tokenizer using standard transformers
+                    # NOTE: Loading a 7B model on CPU will be VERY slow and require lots of RAM
+                    # You might need to use a smaller model or accept potential crashes/slowness
+                    try:
+                        # dtype = torch.float32 # CPU typically uses float32
+                        # load_in_4bit = False # bitsandbytes 4-bit is typically for GPU
+
+                        tokenizer = AutoTokenizer.from_pretrained(model_name)
+                        # Add pad token if missing (common for Llama models)
+                        if tokenizer.pad_token is None:
+                            tokenizer.add_special_tokens({'pad_token': '[PAD]'}) # Or use tokenizer.eos_token
+
+                        model = AutoModelForCausalLM.from_pretrained(
+                            model_name,
+                            # torch_dtype=dtype, # Let transformers handle dtype for CPU usually
+                            # load_in_4bit=load_in_4bit, # Cannot use 4bit easily on CPU without GPU bitsandbytes
+                            device_map="auto", # Let transformers try to place it (will likely be CPU)
+                        )
+                        # Resize token embeddings if pad token was added
+                        model.resize_token_embeddings(len(tokenizer))
+
+                        # Remove: FastLanguageModel.for_inference(model)
+
+                        st.session_state.model = model
+                        st.session_state.tokenizer = tokenizer
+                        st.session_state.is_model_loaded = True
+
+                        st.success("Model loaded successfully (using standard Transformers)!")
+                    except Exception as e:
+                        st.error(f"Error loading model: {str(e)}")
+
+                    # ... later in the generation logic ...
+                    # Ensure inputs are on the correct device (likely CPU)
+                    # inputs = {k: v.to('cpu') for k, v in inputs.items()} # Explicitly set to CPU if needed
+                    # model.to('cpu') # Ensure model is on CPU
+
+                    # Generation stays similar, but will be much slower
+                    with torch.no_grad():
+                         output_ids = st.session_state.model.generate(
+                             **inputs,
+                             max_new_tokens=max_tokens,
+                             do_sample=True,
+                             temperature=temperature,
+                             top_p=0.9,
+                             pad_token_id=st.session_state.tokenizer.pad_token_id # Add pad_token_id
+                         )
+                    # ... rest of the code ...
                 except Exception as e:
                     st.error(f"Error loading model: {str(e)}")
     else:
